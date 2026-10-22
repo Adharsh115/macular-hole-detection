@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MH Localization Engine</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: { extend: {
+        fontFamily: { sans: ['"IBM Plex Sans"', 'system-ui', 'sans-serif'], mono: ['"IBM Plex Mono"', 'monospace'] },
+        colors: { ink: { 950: '#07090d', 900: '#0c1017', 850: '#11161f', 800: '#171d28', 700: '#232b39', 600: '#344054' },
+                  scan: { DEFAULT: '#5eead4', dim: '#2dd4bf33' } }
+      } }
+    };
+  </script>
+  <style>
+    body { background: radial-gradient(1200px 600px at 70% -10%, #0f2a2a55, transparent), #07090d; }
+    .scanline { background: linear-gradient(90deg, transparent, #5eead4, transparent); animation: sweep 1.4s ease-in-out infinite; }
+    @keyframes sweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
+    .drop-active { border-color: #5eead4 !important; background: #5eead40d; }
+    .stage.done .dot { background: #5eead4; box-shadow: 0 0 8px #5eead4; }
+    .stage.active .dot { background: #fbbf24; animation: pulse 0.9s infinite; }
+    @keyframes pulse { 50% { opacity: .35; } }
+    .img-frame { image-rendering: auto; aspect-ratio: 1 / 1; }
+    /* ---- Offline fallback: applied only if the Tailwind CDN failed to load ---- */
+    .no-tw body { font-family: system-ui, sans-serif; color: #e2e8f0; margin: 0; }
+    .no-tw .hidden { display: none !important; }
+    .no-tw svg { width: 24px; height: 24px; }
+    .no-tw header > div { display: flex; justify-content: space-between; align-items: center; padding: 10px 20px; border-bottom: 1px solid #232b39; }
+    .no-tw header h1 { font-size: 15px; margin: 0; } .no-tw header p { margin: 0; font-size: 11px; color: #64748b; }
+    .no-tw main { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 20px; padding: 20px; max-width: 1280px; margin: auto; }
+    @media (max-width: 900px) { .no-tw main { grid-template-columns: 1fr; } }
+    .no-tw main > section > div, .no-tw #report { border: 1px solid #232b39; border-radius: 10px; background: #0c1017; padding: 14px; margin-bottom: 16px; }
+    .no-tw h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .14em; color: #94a3b8; margin: 0 0 10px; }
+    .no-tw #drop { display: block; border: 2px dashed #344054; border-radius: 8px; padding: 20px; text-align: center; cursor: pointer; }
+    .no-tw #samples { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .no-tw #samples button { position: relative; padding: 0; border: 1px solid #232b39; background: none; color: #e2e8f0; border-radius: 6px; overflow: hidden; cursor: pointer; }
+    .no-tw #samples img { width: 100%; display: block; } .no-tw #samples span { position: absolute; bottom: 0; left: 0; right: 0; font-size: 10px; background: #000a; }
+    .no-tw #stages { list-style: none; padding: 0; margin: 0; font-size: 13px; } .no-tw #stages li { display: flex; gap: 8px; align-items: center; margin: 6px 0; }
+    .no-tw .dot { width: 8px; height: 8px; border-radius: 50%; background: #344054; display: inline-block; }
+    .no-tw #bar { height: 4px; background: #5eead4; } .no-tw #bar { position: relative; }
+    .no-tw figure { margin: 0; } .no-tw figure > div { position: relative; background: #07090d; border: 1px solid #232b39; border-radius: 8px; overflow: hidden; display: grid; place-items: center; }
+    .no-tw figure img { width: 100%; height: 100%; object-fit: contain; } .no-tw figcaption { font-size: 12px; color: #64748b; margin-top: 6px; }
+    .no-tw section > div > .grid, .no-tw #report > .p-5 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .no-tw #locStats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0; } .no-tw #locStats > div { border: 1px solid #232b39; border-radius: 8px; padding: 8px; }
+    .no-tw #locStats dd { margin: 0; } .no-tw #foveaLine { position: absolute; top: 0; bottom: 0; border-left: 1px dashed #fff8; }
+    .no-tw #peak { position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; border: 2px solid #fff; border-radius: 50%; }
+    .no-tw #pmhBar { height: 8px; background: #fb7185; } .no-tw #warnings > div { border: 1px solid #f43f5e66; border-radius: 8px; padding: 8px; margin: 6px 0; font-size: 13px; }
+    .no-tw #verdict { font-size: 24px; margin: 0; } .no-tw #conf { font-size: 24px; margin: 0; font-family: monospace; }
+    .no-tw #verdictBar { display: flex; justify-content: space-between; } .no-tw #meta { font-size: 11px; color: #64748b; display: flex; gap: 14px; flex-wrap: wrap; }
+    .grid-bg { background-image: linear-gradient(#ffffff08 1px, transparent 1px), linear-gradient(90deg, #ffffff08 1px, transparent 1px); background-size: 16px 16px; }
+  </style>
+</head>
+<body class="min-h-screen text-slate-200 font-sans antialiased">
+  <!-- Header -->
+  <header class="border-b border-ink-700/70 bg-ink-950/80 backdrop-blur sticky top-0 z-10">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3 min-w-0">
+        <svg class="w-6 h-6 text-scan shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.2"/><path d="M3 12h3M18 12h3"/>
+        </svg>
+        <div class="min-w-0">
+          <h1 class="text-sm font-semibold tracking-wide truncate">Macular Hole Detection &amp; Foveal Localization</h1>
+          <p class="text-[11px] text-slate-500 font-mono truncate">OCT B-scan · ViT-Tiny · Grad-CAM structural verification</p>
+        </div>
+      </div>
+      <div id="status" class="flex items-center gap-2 text-xs font-mono px-2.5 py-1 rounded-full border border-ink-600 text-slate-400 shrink-0">
+        <span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span><span>checking…</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 grid gap-6 lg:grid-cols-[340px_1fr]">
+    <!-- Left column: input -->
+    <section class="space-y-5">
+      <div class="rounded-xl border border-ink-700 bg-ink-900/80 p-4">
+        <h2 class="text-xs uppercase tracking-[0.14em] text-slate-400 mb-3">Input scan</h2>
+        <label id="drop" for="file" class="grid-bg block cursor-pointer rounded-lg border-2 border-dashed border-ink-600 p-6 text-center transition">
+          <svg class="w-9 h-9 mx-auto mb-2 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M12 16V4m0 0l-4 4m4-4l4 4M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/>
+          </svg>
+          <p class="text-sm text-slate-300">Drop an OCT B-scan here</p>
+          <p class="text-xs text-slate-500 mt-1">or click to browse · PNG, JPG, TIFF, BMP · ≤ 16 MB</p>
+          <input id="file" type="file" accept=".png,.jpg,.jpeg,.tif,.tiff,.bmp" class="hidden">
+        </label>
+        <p id="filename" class="mt-2 text-xs font-mono text-slate-500 truncate"></p>
+      </div>
+
+      <div class="rounded-xl border border-ink-700 bg-ink-900/80 p-4">
+        <h2 class="text-xs uppercase tracking-[0.14em] text-slate-400 mb-3">Validation samples</h2>
+        <div id="samples" class="grid grid-cols-3 gap-2"><p class="col-span-3 text-xs text-slate-500">Loading…</p></div>
+      </div>
+
+      <div class="rounded-xl border border-ink-700 bg-ink-900/80 p-4">
+        <h2 class="text-xs uppercase tracking-[0.14em] text-slate-400 mb-3">Pipeline</h2>
+        <div class="relative h-1 rounded bg-ink-700 overflow-hidden mb-4">
+          <div id="bar" class="absolute inset-y-0 left-0 bg-scan transition-all duration-300" style="width:0%"></div>
+          <div id="sweep" class="hidden absolute inset-y-0 w-1/3 scanline"></div>
+        </div>
+        <ol class="space-y-2 text-sm" id="stages">
+          <li class="stage flex items-center gap-2.5" data-s="0"><span class="dot w-2 h-2 rounded-full bg-ink-600"></span>Upload</li>
+          <li class="stage flex items-center gap-2.5" data-s="1"><span class="dot w-2 h-2 rounded-full bg-ink-600"></span>Percentile intensity normalisation</li>
+          <li class="stage flex items-center gap-2.5" data-s="2"><span class="dot w-2 h-2 rounded-full bg-ink-600"></span>Transformer inference</li>
+          <li class="stage flex items-center gap-2.5" data-s="3"><span class="dot w-2 h-2 rounded-full bg-ink-600"></span>Grad-CAM + structural check</li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- Right column: viewer + report -->
+    <section class="space-y-6 min-w-0">
+      <div id="error" class="hidden rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200"></div>
+
+      <div class="rounded-xl border border-ink-700 bg-ink-900/80 p-4">
+        <div class="flex items-center justify-between mb-3 gap-3">
+          <h2 class="text-xs uppercase tracking-[0.14em] text-slate-400">Visual explanation</h2>
+          <div class="flex items-center gap-2 text-[11px] font-mono text-slate-500">
+            <span>low</span><span class="w-24 h-1.5 rounded" style="background:linear-gradient(90deg,#00007f,#0080ff,#7fff7f,#ff8000,#7f0000)"></span><span>high attention</span>
+          </div>
+        </div>
+        <div class="grid sm:grid-cols-2 gap-4">
+          <figure>
+            <div class="img-frame rounded-lg bg-ink-950 border border-ink-700 overflow-hidden grid place-items-center">
+              <img id="imgOrig" class="w-full h-full object-contain hidden" alt="Normalised OCT scan">
+              <span id="ph1" class="text-xs text-slate-600 font-mono">no scan loaded</span>
+            </div>
+            <figcaption class="mt-2 text-xs text-slate-500">Original (percentile-normalised, 224×224)</figcaption>
+          </figure>
+          <figure>
+            <div class="img-frame relative rounded-lg bg-ink-950 border border-ink-700 overflow-hidden grid place-items-center">
+              <img id="imgCam" class="w-full h-full object-contain hidden" alt="Grad-CAM heat-map overlay">
+              <span id="ph2" class="text-xs text-slate-600 font-mono">awaiting inference</span>
+              <div id="foveaLine" class="hidden absolute inset-y-0 border-l border-dashed border-white/50"></div>
+              <div id="peak" class="hidden absolute w-4 h-4 -ml-2 -mt-2 rounded-full border-2 border-white"></div>
+            </div>
+            <figcaption class="mt-2 text-xs text-slate-500">Grad-CAM overlay · dashed line = estimated fovea · ring = attention peak</figcaption>
+          </figure>
+        </div>
+      </div>
+
+      <!-- Report -->
+      <div id="report" class="hidden rounded-xl border border-ink-700 bg-ink-900/80 overflow-hidden">
+        <div id="verdictBar" class="px-5 py-4 border-b border-ink-700 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p class="text-[11px] uppercase tracking-[0.14em] text-slate-400">Classification</p>
+            <p id="verdict" class="text-2xl font-semibold mt-0.5"></p>
+          </div>
+          <div class="text-right">
+            <p class="text-[11px] uppercase tracking-[0.14em] text-slate-400">Confidence</p>
+            <p id="conf" class="text-2xl font-mono mt-0.5"></p>
+          </div>
+        </div>
+        <div class="p-5 grid md:grid-cols-2 gap-6">
+          <div class="space-y-4">
+            <div>
+              <div class="flex justify-between text-xs mb-1"><span class="text-slate-400">P(Macular Hole)</span><span id="pmh" class="font-mono"></span></div>
+              <div class="relative h-2 rounded bg-ink-700">
+                <div id="pmhBar" class="absolute inset-y-0 left-0 rounded bg-rose-400"></div>
+                <div id="thrMark" class="absolute -top-1 -bottom-1 w-px bg-white/70"></div>
+              </div>
+              <p class="text-[11px] text-slate-500 mt-1 font-mono" id="thrText"></p>
+            </div>
+            <div id="warnings" class="space-y-2"></div>
+          </div>
+          <dl class="grid grid-cols-2 gap-3 text-sm" id="locStats"></dl>
+        </div>
+        <div class="px-5 py-3 border-t border-ink-700 text-[11px] text-slate-500 font-mono flex flex-wrap gap-x-4 gap-y-1" id="meta"></div>
+      </div>
+
+      <p class="text-[11px] text-slate-500 leading-relaxed">
+        Research prototype. Not a medical device and not validated for diagnosis. If the model was trained on the
+        bundled synthetic dataset, its outputs on real OCT scans are not meaningful.
+      </p>
+    </section>
+  </main>
+
+<script>
+if (!window.tailwind) document.documentElement.classList.add('no-tw');   // CDN unreachable -> fallback CSS
+const $ = (id) => document.getElementById(id);
+const stages = [...document.querySelectorAll('.stage')];
+let stageTimer = null;
+
+function setStage(i) {
+  stages.forEach((el, k) => { el.classList.toggle('done', k < i); el.classList.toggle('active', k === i); });
+  $('bar').style.width = `${Math.min(100, i * 25)}%`;
+}
+function showError(msg) { $('error').textContent = msg; $('error').classList.remove('hidden'); }
+
+async function health() {
+  try {
+    const h = await (await fetch('/health')).json();
+    const s = $('status');
+    if (h.model_loaded) {
+      s.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-scan"></span><span>${h.config.backbone} · ${h.device}${h.synthetic_training_data ? ' · synthetic-trained' : ''}</span>`;
+      s.classList.replace('text-slate-400', 'text-scan');
+    } else {
+      s.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span><span>model not trained</span>`;
+      showError('No trained model found. Run "python mh_engine.py" and restart the server.');
+    }
+  } catch { /* server offline */ }
+}
+
+async function loadSamples() {
+  const box = $('samples');
+  try {
+    const list = await (await fetch('/samples')).json();
+    if (!list.length) { box.innerHTML = '<p class="col-span-3 text-xs text-slate-500">No samples found.</p>'; return; }
+    box.innerHTML = '';
+    list.forEach((s) => {
+      const b = document.createElement('button');
+      b.className = 'group relative rounded-md overflow-hidden border border-ink-700 hover:border-scan transition';
+      b.innerHTML = `<img src="/sample/${s.path}" class="w-full aspect-square object-cover opacity-80 group-hover:opacity-100" alt="${s.label} sample">
+        <span class="absolute bottom-0 inset-x-0 text-[10px] font-mono bg-black/60 py-0.5">${s.label === 'Normal' ? 'Normal' : 'MH'}</span>`;
+      b.onclick = async () => {
+        const blob = await (await fetch(`/sample/${s.path}`)).blob();
+        run(new File([blob], s.path.split('/')[1], { type: 'image/png' }));
+      };
+      box.appendChild(b);
+    });
+  } catch { box.innerHTML = '<p class="col-span-3 text-xs text-slate-500">Unavailable.</p>'; }
+}
+
+function run(file) {
+  if (!file) return;
+  $('error').classList.add('hidden');
+  $('filename').textContent = file.name;
+  $('report').classList.add('hidden');
+  ['foveaLine', 'peak'].forEach((id) => $(id).classList.add('hidden'));
+  $('sweep').classList.remove('hidden');
+  setStage(0);
+
+  const fd = new FormData(); fd.append('file', file);
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/predict');
+  xhr.upload.onprogress = (e) => { if (e.lengthComputable) $('bar').style.width = `${(e.loaded / e.total) * 25}%`; };
+  xhr.upload.onload = () => {             // server-side stages: advance while waiting
+    let i = 1; setStage(i);
+    stageTimer = setInterval(() => { if (i < 3) setStage(++i); }, 220);
+  };
+  xhr.onload = () => {
+    clearInterval(stageTimer); $('sweep').classList.add('hidden');
+    let data; try { data = JSON.parse(xhr.responseText); } catch { data = { error: 'Unexpected server response.' }; }
+    if (xhr.status !== 200 || data.error) { setStage(0); $('bar').style.width = '0%'; showError(data.error || `HTTP ${xhr.status}`); return; }
+    setStage(4); render(data);
+  };
+  xhr.onerror = () => { clearInterval(stageTimer); $('sweep').classList.add('hidden'); showError('Network error — is the server running?'); };
+  xhr.send(fd);
+}
+
+function stat(label, value, hint, ok) {
+  const color = ok === undefined ? 'text-slate-100' : ok ? 'text-scan' : 'text-amber-300';
+  return `<div class="rounded-lg bg-ink-850 border border-ink-700 px-3 py-2.5">
+      <dt class="text-[11px] text-slate-400">${label}</dt>
+      <dd class="font-mono text-lg ${color}">${value}</dd>
+      <dd class="text-[10px] text-slate-500 leading-snug">${hint}</dd></div>`;
+}
+
+function render(d) {
+  $('imgOrig').src = d.images.original; $('imgCam').src = d.images.gradcam;
+  ['imgOrig', 'imgCam'].forEach((id) => $(id).classList.remove('hidden'));
+  ['ph1', 'ph2'].forEach((id) => $(id).classList.add('hidden'));
+
+  const L = d.localization, size = 224;
+  $('foveaLine').style.left = `${(L.fovea_x / size) * 100}%`;
+  $('peak').style.left = `${(L.cam_peak_xy[0] / size) * 100}%`;
+  $('peak').style.top = `${(L.cam_peak_xy[1] / size) * 100}%`;
+  ['foveaLine', 'peak'].forEach((id) => $(id).classList.remove('hidden'));
+
+  const mh = d.is_macular_hole;
+  $('verdict').textContent = d.prediction;
+  $('verdict').className = `text-2xl font-semibold mt-0.5 ${mh ? 'text-rose-300' : 'text-scan'}`;
+  $('verdictBar').style.background = mh ? 'linear-gradient(90deg,#f43f5e1a,transparent)' : 'linear-gradient(90deg,#5eead41a,transparent)';
+  $('conf').textContent = `${d.confidence.toFixed(1)}%`;
+
+  const p = d.probabilities.macular_hole;
+  $('pmh').textContent = p.toFixed(3);
+  $('pmhBar').style.width = `${p * 100}%`;
+  $('thrMark').style.left = `${d.model.threshold * 100}%`;
+  $('thrText').textContent = `decision threshold ${d.model.threshold.toFixed(2)} · Grad-CAM explains "${d.explained_class}"`;
+
+  const w = d.clinical.warnings;
+  $('warnings').innerHTML = w.length ? w.map((x) => {
+    const crit = x.level === 'critical';
+    return `<div class="flex gap-2.5 rounded-lg px-3 py-2.5 text-sm border ${crit ? 'border-rose-500/40 bg-rose-500/10 text-rose-100' : 'border-amber-400/30 bg-amber-400/10 text-amber-100'}">
+      <span class="mt-0.5">${crit ? '⚠' : '◆'}</span><span>${x.text}</span></div>`;
+  }).join('') : `<div class="rounded-lg px-3 py-2.5 text-sm border border-scan/30 bg-scan/5 text-teal-100">No structural foveal disruption flagged. Attention is anatomically grounded.</div>`;
+
+  $('locStats').innerHTML =
+    stat('Localization score', L.localization_score.toFixed(3), 'M<sub>tissue</sub> / (M<sub>tissue</sub> + M<sub>border</sub>) · ≥ 0.80', L.localization_score >= 0.8) +
+    stat('Border mass', `${(L.border_mass_frac * 100).toFixed(1)}%`, 'CAM mass in outer 16 px · ≤ 10%', L.border_mass_frac <= 0.10) +
+    stat('Foveal mass', `${(L.foveal_mass_frac * 100).toFixed(1)}%`, 'CAM mass within ±28 px of fovea') +
+    stat('Foveal pointing', L.pointing_hit ? 'HIT' : 'MISS', `peak x=${L.cam_peak_xy[0]} · fovea x=${Math.round(L.fovea_x)}`, L.pointing_hit);
+
+  $('meta').innerHTML = `<span>backbone: ${d.model.backbone}</span><span>device: ${d.model.device}</span><span>latency: ${d.latency_ms} ms</span><span>${d.disclaimer}</span>`;
+  $('report').classList.remove('hidden');
+}
+
+// Drag & drop
+const drop = $('drop');
+['dragenter', 'dragover'].forEach((e) => drop.addEventListener(e, (ev) => { ev.preventDefault(); drop.classList.add('drop-active'); }));
+['dragleave', 'drop'].forEach((e) => drop.addEventListener(e, (ev) => { ev.preventDefault(); drop.classList.remove('drop-active'); }));
+drop.addEventListener('drop', (ev) => run(ev.dataTransfer.files[0]));
+$('file').addEventListener('change', (ev) => { run(ev.target.files[0]); ev.target.value = ''; });
+
+health(); loadSamples();
+</script>
+</body>
+</html>

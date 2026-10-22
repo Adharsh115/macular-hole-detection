@@ -1,0 +1,7 @@
+torch>=2.1
+torchvision>=0.16
+timm>=0.9
+numpy>=1.24
+Pillow>=10.0
+flask>=3.0
+matplotlib>=3.7   # optional: ROC + reliability figure
