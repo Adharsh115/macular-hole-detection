@@ -20,6 +20,21 @@ First run downloads ImageNet weights for ViT-Tiny (~22 MB). With no internet, us
 Useful flags: `--epochs 5`, `--regen` (new synthetic data), `--backbone vit|effnet|auto`,
 `--n-train 240 --n-val 80`, `--time-budget 110`.
 
+## Paper experiments
+
+```bash
+python experiments.py          # ~3–5 min on an Apple-silicon GPU
+```
+
+| ID | Experiment |
+|---|---|
+| E0 | Known-answer validation of the verification metrics (no training) |
+| E1/E2 | 3-seed baseline and Grad-CAM depth ablation (last 1, 2, 4, 6, 12 blocks) |
+| E3 | Shortcut injection: a border marker correlated with the MH label, tested on clean and flipped markers |
+| E4 | Percentile vs min-max vs no normalisation, in-distribution and on an unseen scanner response |
+
+Results go to `outputs/experiments/results.json`, with Grad-CAM panels as PNGs.
+
 ## What gets produced
 
 | File | Contents |

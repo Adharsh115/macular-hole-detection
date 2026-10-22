@@ -110,11 +110,17 @@ def _layer_profile(t: np.ndarray) -> np.ndarray:
     return np.select(conds, vals, default=choroid)
 
 
-def synth_oct(label: int, rng: np.random.Generator, size: int = IMG_SIZE) -> tuple[np.ndarray, dict]:
+def synth_oct(label: int, rng: np.random.Generator, size: int = IMG_SIZE,
+              subtle: bool = False, device: dict | None = None) -> tuple[np.ndarray, dict]:
     """Generate one synthetic foveal OCT B-scan.
 
     label 0 -> normal foveal pit, label 1 -> full-thickness macular hole.
+    subtle -> narrower, partially reflective hole with fewer secondary cues
+              (used to make the true lesion signal harder in experiments).
+    device -> override scanner response ranges, e.g. {"gain": (0.25, 0.45),
+              "gamma": (1.5, 2.0), "offset": (0.15, 0.3)} for a device shift.
     Returns (uint8 image HxW, metadata with ground-truth fovea location).
+    Defaults reproduce the original generator exactly.
     """
     H = W = size
     x = np.arange(W, dtype=np.float32)
@@ -137,8 +143,8 @@ def synth_oct(label: int, rng: np.random.Generator, size: int = IMG_SIZE) -> tup
         top = top + depth * np.exp(-(d ** 2) / (2 * sigma ** 2))
     else:
         # Macular hole: elevated, thickened rims around a full-thickness defect
-        hole_w0 = rng.uniform(6, 14)                     # half-width at the apex
-        rim_h = rng.uniform(6, 14)
+        hole_w0 = rng.uniform(2, 5) if subtle else rng.uniform(6, 14)   # half-width at the apex
+        rim_h = rng.uniform(2, 6) if subtle else rng.uniform(6, 14)
         top = top - rim_h * np.exp(-((np.abs(d) - hole_w0 - 7) ** 2) / (2 * 7.0 ** 2))
 
     t = (y - top[None, :]) / (rpe - top)[None, :]
@@ -146,14 +152,16 @@ def synth_oct(label: int, rng: np.random.Generator, size: int = IMG_SIZE) -> tup
 
     if label == 1:
         # Full-thickness defect: hourglass-shaped gap from ILM down to (not through) the RPE
-        half_w = hole_w0 + rng.uniform(6, 14) * np.clip(t, 0, 1)        # wider at base
+        widen = rng.uniform(2, 6) if subtle else rng.uniform(6, 14)
+        half_w = hole_w0 + widen * np.clip(t, 0, 1)                      # wider at base
         defect = (np.abs(d)[None, :] < half_w) & (t >= -0.05) & (t < 0.86)
-        img[defect] = 0.05 + 0.03 * rng.random(defect.sum())
+        fill = 0.22 if subtle else 0.05                                   # subtle: partly reflective
+        img[defect] = fill + 0.03 * rng.random(defect.sum())
         # Intraretinal cysts in the hole rims (hypo-reflective ellipses)
         cyst = Image.new("L", (W, H), 0)
         draw = ImageDraw.Draw(cyst)
         for side in (-1, 1):
-            for _ in range(rng.integers(1, 4)):
+            for _ in range(rng.integers(0, 2) if subtle else rng.integers(1, 4)):
                 cx = fx + side * (hole_w0 + rng.uniform(8, 20))
                 cxi = int(np.clip(cx, 0, W - 1))
                 cy = top[cxi] + rng.uniform(0.35, 0.7) * (rpe[cxi] - top[cxi])
@@ -162,7 +170,7 @@ def synth_oct(label: int, rng: np.random.Generator, size: int = IMG_SIZE) -> tup
         cmask = np.asarray(cyst) > 0
         img[cmask] = 0.08
         # Occasional operculum floating above the hole
-        if rng.random() < 0.4:
+        if not subtle and rng.random() < 0.4:
             oy = int(top[int(np.clip(fx, 0, W - 1))] - rng.uniform(12, 24))
             op = Image.new("L", (W, H), 0)
             ImageDraw.Draw(op).ellipse([fx - 5, oy - 2, fx + 5, oy + 2], fill=255)
@@ -175,7 +183,8 @@ def synth_oct(label: int, rng: np.random.Generator, size: int = IMG_SIZE) -> tup
     img = np.asarray(pil).astype(np.float32) / 255.0
 
     # Scanner-specific gain / gamma / offset (motivates percentile normalisation)
-    gain, gamma, offset = rng.uniform(0.6, 1.3), rng.uniform(0.7, 1.4), rng.uniform(0.0, 0.12)
+    dev = {"gain": (0.6, 1.3), "gamma": (0.7, 1.4), "offset": (0.0, 0.12), **(device or {})}
+    gain, gamma, offset = rng.uniform(*dev["gain"]), rng.uniform(*dev["gamma"]), rng.uniform(*dev["offset"])
     img = np.clip(offset + gain * img ** gamma, 0, 1)
 
     fxi = int(round(np.clip(fx, 0, W - 1)))
